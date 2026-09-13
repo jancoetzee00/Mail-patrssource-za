@@ -13,8 +13,10 @@ import {
   Mail,
   MailOpen,
   Filter,
+  RefreshCw,
 } from 'lucide-react';
 import { Email, Account, EmailFolder } from '../types';
+import { GoogleSignInButton } from './GoogleSignInButton';
 
 interface EmailListProps {
   emails: Email[];
@@ -31,6 +33,10 @@ interface EmailListProps {
   onMarkReadSelected: (read: boolean) => void;
   isOnline: boolean;
   selectedAccountId: string | 'all';
+  isGmailConnected?: boolean;
+  onConnectGmail?: () => void;
+  onSyncGmail?: () => void;
+  isGmailSyncing?: boolean;
 }
 
 export const EmailList: React.FC<EmailListProps> = ({
@@ -48,6 +54,10 @@ export const EmailList: React.FC<EmailListProps> = ({
   onMarkReadSelected,
   isOnline,
   selectedAccountId,
+  isGmailConnected = false,
+  onConnectGmail,
+  onSyncGmail,
+  isGmailSyncing = false,
 }) => {
   const allSelected = emails.length > 0 && selectedIds.length === emails.length;
 
@@ -148,7 +158,7 @@ export const EmailList: React.FC<EmailListProps> = ({
         {emails.length === 0 ? (
           <div
             id="empty-email-list-state"
-            className="flex flex-col items-center justify-center p-8 text-center text-slate-400 dark:text-slate-500 h-64"
+            className="flex flex-col items-center justify-center p-8 text-center text-slate-400 dark:text-slate-500 min-h-[300px]"
           >
             <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-3">
               <Mail className="w-6 h-6 text-slate-400" />
@@ -156,11 +166,33 @@ export const EmailList: React.FC<EmailListProps> = ({
             <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
               No messages in {currentFolder}
             </p>
-            <p className="text-xs mt-1 text-slate-500 max-w-xs">
+            <p className="text-xs mt-1 text-slate-500 max-w-xs mb-4">
               {currentFolder === 'outbox'
                 ? 'Outgoing emails will be queued here safely while offline and synced automatically when reconnected.'
-                : 'All clear! Messages will appear here when received or composed.'}
+                : 'All clear! Messages will appear here when received, synced, or composed.'}
             </p>
+
+            {currentFolder === 'inbox' && (
+              <div className="flex flex-col items-center gap-2">
+                {!isGmailConnected && onConnectGmail ? (
+                  <GoogleSignInButton
+                    onClick={onConnectGmail}
+                    label="Connect Gmail to sync inbox"
+                    className="shadow-sm"
+                  />
+                ) : isGmailConnected && onSyncGmail ? (
+                  <button
+                    type="button"
+                    onClick={onSyncGmail}
+                    disabled={isGmailSyncing}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs shadow-xs transition-all cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isGmailSyncing ? 'animate-spin' : ''}`} />
+                    <span>{isGmailSyncing ? 'Syncing Gmail...' : 'Sync Gmail Inbox'}</span>
+                  </button>
+                ) : null}
+              </div>
+            )}
           </div>
         ) : (
           emails.map((email) => {

@@ -14,6 +14,25 @@ import { NotificationCenter } from './components/NotificationCenter';
 import { AddAccountModal } from './components/AddAccountModal';
 import { SessionLockScreen } from './components/SessionLockScreen';
 import { TemplatesView } from './components/TemplatesView';
+import { GmailConfirmModal, GmailConfirmType } from './components/GmailConfirmModal';
+import {
+  initGmailAuth,
+  signInWithGmail,
+  signOutGmail,
+  fetchGmailEmails,
+  sendGmailEmail,
+  trashGmailEmail,
+  setGmailStarred,
+  setGmailReadStatus,
+} from './lib/gmailService';
+import {
+  auth,
+  syncEmailToFirestore,
+  deleteEmailFromFirestore,
+  syncLeadToFirestore,
+  subscribeFirestoreEmails,
+  subscribeFirestoreLeads,
+} from './lib/firebase';
 
 import {
   Account,
@@ -155,6 +174,85 @@ export default function App() {
   const [isSessionLocked, setIsSessionLocked] = useState<boolean>(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
   const [darkMode, setDarkMode] = useState<boolean>(false);
+
+  // --- Gmail Integration State ---
+  const [isGmailConnected, setIsGmailConnected] = useState<boolean>(false);
+  const [gmailUserEmail, setGmailUserEmail] = useState<string | null>(null);
+  const [isGmailSyncing, setIsGmailSyncing] = useState<boolean>(false);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    type: GmailConfirmType;
+    title: string;
+    description: string;
+    detailItems?: string[];
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
+
+  // --- Firebase User & Firestore Realtime Sync ---
+  const [firebaseUserId, setFirebaseUserId] = useState<string | null>(
+    auth.currentUser?.uid || null
+  );
+
+  // --- Initialize Gmail Client Auth Listener ---
+  useEffect(() => {
+    const unsubscribe = initGmailAuth(
+      (user) => {
+        setIsGmailConnected(true);
+        if (user.email) {
+          setGmailUserEmail(user.email);
+        }
+        setFirebaseUserId(user.uid);
+      },
+      () => {
+        setIsGmailConnected(false);
+        setGmailUserEmail(null);
+        setFirebaseUserId(null);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  // --- Realtime Firestore Cloud Database Synchronization ---
+  useEffect(() => {
+    if (!firebaseUserId) return;
+    const unsubEmails = subscribeFirestoreEmails(
+      firebaseUserId,
+      (remoteEmails) => {
+        if (remoteEmails.length > 0) {
+          setEmails((prev) => {
+            const remoteMap = new Map(remoteEmails.map((e) => [e.id, e]));
+            const merged = prev.map((e) => remoteMap.get(e.id) || e);
+            const existingIds = new Set(prev.map((e) => e.id));
+            const newFromRemote = remoteEmails.filter((e) => !existingIds.has(e.id));
+            return [...newFromRemote, ...merged];
+          });
+        }
+      },
+      (err) => console.warn('Firestore Email Sync warning:', err.message)
+    );
+
+    const unsubLeads = subscribeFirestoreLeads(
+      firebaseUserId,
+      (remoteLeads) => {
+        if (remoteLeads.length > 0) {
+          setCrmLeads((prev) => {
+            const remoteMap = new Map(remoteLeads.map((l) => [l.id, l]));
+            const merged = prev.map((l) => remoteMap.get(l.id) || l);
+            const existingIds = new Set(prev.map((l) => l.id));
+            const newFromRemote = remoteLeads.filter((l) => !existingIds.has(l.id));
+            return [...newFromRemote, ...merged];
+          });
+        }
+      },
+      (err) => console.warn('Firestore CRM Leads Sync warning:', err.message)
+    );
+
+    return () => {
+      unsubEmails();
+      unsubLeads();
+    };
+  }, [firebaseUserId]);
 
   // --- Dark Mode Sync with DOM ---
   useEffect(() => {
@@ -379,12 +477,163 @@ export default function App() {
     return emails.find((e) => e.id === selectedEmailId);
   }, [emails, selectedEmailId]);
 
+  // --- Gmail Authentication & Synchronization Handlers ---
+  const handleConnectGmail = async () => {
+    try {
+      const { user } = await signInWithGmail();
+      const userEmail = user.email || 'jancoetzee00@gmail.com';
+      setIsGmailConnected(true);
+      setGmailUserEmail(userEmail);
+
+      // Link to accounts list
+      setAccounts((prev) => {
+        const found = prev.find((a) => a.email.toLowerCase() === userEmail.toLowerCase());
+        if (found) {
+          return prev.map((a) =>
+            a.id === found.id
+              ? { ...a, name: user.displayName || a.name, avatar: user.photoURL || a.avatar }
+              : a
+          );
+        }
+        return [
+          {
+            id: `acc_gmail_${Date.now()}`,
+            businessId: activeBusinessId,
+            name: user.displayName || 'Jan Coetzee',
+            email: userEmail,
+            avatar:
+              user.photoURL ||
+              'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+            color: '#EA4335',
+            role: 'owner',
+            provider: 'Google Workspace',
+            unreadCount: 0,
+          },
+          ...prev,
+        ];
+      });
+
+      setNotifications((prev) => [
+        {
+          id: `gmail-connect-${Date.now()}`,
+          title: 'Gmail Connected Successfully',
+          message: `Signed in as ${userEmail}. Ready to sync and send messages.`,
+          type: 'sync',
+          timestamp: 'Just now',
+          read: false,
+        },
+        ...prev,
+      ]);
+
+      await triggerGmailSync(userEmail);
+    } catch (err: any) {
+      console.error('Gmail Connect Error:', err);
+      setNotifications((prev) => [
+        {
+          id: `gmail-connect-err-${Date.now()}`,
+          title: 'Gmail Authentication',
+          message: err.message || 'Google OAuth sign-in was cancelled or blocked.',
+          type: 'system',
+          timestamp: 'Just now',
+          read: false,
+        },
+        ...prev,
+      ]);
+    }
+  };
+
+  const handleDisconnectGmail = async () => {
+    await signOutGmail();
+    setIsGmailConnected(false);
+    setGmailUserEmail(null);
+    setNotifications((prev) => [
+      {
+        id: `gmail-disconnect-${Date.now()}`,
+        title: 'Gmail Session Disconnected',
+        message: 'Google Workspace access tokens removed from memory.',
+        type: 'system',
+        timestamp: 'Just now',
+        read: false,
+      },
+      ...prev,
+    ]);
+  };
+
+  const triggerGmailSync = async (userEmailOverride?: string) => {
+    if (isGmailSyncing) return;
+    setIsGmailSyncing(true);
+    try {
+      const targetAccountId =
+        accounts.find((a) => a.provider === 'Google Workspace')?.id ||
+        accounts[0]?.id ||
+        'acc_jan';
+      const fetchedEmails = await fetchGmailEmails(targetAccountId, 30);
+
+      setEmails((prev) => {
+        const existingIds = new Set(prev.map((e) => e.id));
+        const newEmails = fetchedEmails.filter((e) => !existingIds.has(e.id));
+        return [...newEmails, ...prev];
+      });
+
+      if (firebaseUserId) {
+        for (const fe of fetchedEmails.slice(0, 15)) {
+          syncEmailToFirestore(firebaseUserId, fe).catch(console.error);
+        }
+      }
+
+      const unreadCount = fetchedEmails.filter((e) => !e.isRead && e.folder === 'inbox').length;
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === targetAccountId ? { ...a, unreadCount } : a))
+      );
+
+      setLastSyncTime(
+        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      );
+
+      setNotifications((prev) => [
+        {
+          id: `gmail-synced-${Date.now()}`,
+          title: 'Gmail Inbox Synced',
+          message: `Retrieved ${fetchedEmails.length} messages from ${
+            userEmailOverride || gmailUserEmail || 'Gmail'
+          }.`,
+          type: 'sync',
+          timestamp: 'Just now',
+          read: false,
+        },
+        ...prev,
+      ]);
+    } catch (err: any) {
+      console.error('Gmail Sync Error:', err);
+      setNotifications((prev) => [
+        {
+          id: `gmail-sync-err-${Date.now()}`,
+          title: 'Gmail Sync Error',
+          message:
+            err.message || 'Failed to fetch messages from Gmail API. Ensure you are signed in.',
+          type: 'system',
+          timestamp: 'Just now',
+          read: false,
+        },
+        ...prev,
+      ]);
+    } finally {
+      setIsGmailSyncing(false);
+    }
+  };
+
   // --- Email Actions ---
   const handleToggleStar = (emailId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    const current = emails.find((em) => em.id === emailId);
+    if (!current) return;
+    const newStarred = !current.isStarred;
     setEmails((prev) =>
-      prev.map((em) => (em.id === emailId ? { ...em, isStarred: !em.isStarred } : em))
+      prev.map((em) => (em.id === emailId ? { ...em, isStarred: newStarred } : em))
     );
+    if (isGmailConnected) {
+      setGmailStarred(emailId, newStarred).catch(console.error);
+    }
   };
 
   const handleSelectEmail = (id: string) => {
@@ -393,6 +642,9 @@ export default function App() {
     setEmails((prev) =>
       prev.map((em) => (em.id === id ? { ...em, isRead: true } : em))
     );
+    if (isGmailConnected) {
+      setGmailReadStatus(id, true).catch(console.error);
+    }
   };
 
   const handleArchiveEmail = (id: string) => {
@@ -403,10 +655,50 @@ export default function App() {
   };
 
   const handleDeleteEmail = (id: string) => {
-    setEmails((prev) =>
-      prev.map((em) => (em.id === id ? { ...em, folder: 'trash' } : em))
-    );
-    if (selectedEmailId === id) setSelectedEmailId(null);
+    const emailToDelete = emails.find((e) => e.id === id);
+    // Mandatory user confirmation for destructive delete/trash action
+    setConfirmModal({
+      isOpen: true,
+      type: 'delete',
+      title: 'Move Email to Trash',
+      description:
+        'Are you sure you want to move this message to trash? If connected to Gmail, this will update your remote mailbox.',
+      detailItems: emailToDelete
+        ? [
+            `Subject: ${emailToDelete.subject}`,
+            `From: ${emailToDelete.from.name} <${emailToDelete.from.email}>`,
+          ]
+        : undefined,
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        if (isGmailConnected) {
+          try {
+            await trashGmailEmail(id);
+          } catch (e) {
+            console.error('Failed to trash email in Gmail:', e);
+          }
+        }
+        setEmails((prev) =>
+          prev.map((em) => (em.id === id ? { ...em, folder: 'trash' } : em))
+        );
+        if (firebaseUserId && emailToDelete) {
+          syncEmailToFirestore(firebaseUserId, { ...emailToDelete, folder: 'trash' }).catch(console.error);
+        }
+        if (selectedEmailId === id) setSelectedEmailId(null);
+        setNotifications((prev) => [
+          {
+            id: `del-${Date.now()}`,
+            title: 'Email Moved to Trash',
+            message: 'The email was moved to the trash folder.',
+            type: 'system',
+            timestamp: 'Just now',
+            read: false,
+          },
+          ...prev,
+        ]);
+      },
+    });
   };
 
   const handleBatchArchive = () => {
@@ -417,10 +709,42 @@ export default function App() {
   };
 
   const handleBatchDelete = () => {
-    setEmails((prev) =>
-      prev.map((em) => (selectedEmailIds.includes(em.id) ? { ...em, folder: 'trash' } : em))
-    );
-    setSelectedEmailIds([]);
+    if (selectedEmailIds.length === 0) return;
+    setConfirmModal({
+      isOpen: true,
+      type: 'batch_delete',
+      title: `Move ${selectedEmailIds.length} Emails to Trash`,
+      description: `Are you sure you want to move all ${selectedEmailIds.length} selected messages to trash?`,
+      detailItems: [`Selected items: ${selectedEmailIds.length} messages`],
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        if (isGmailConnected) {
+          for (const id of selectedEmailIds) {
+            try {
+              await trashGmailEmail(id);
+            } catch (e) {
+              console.error(`Failed to trash ${id}:`, e);
+            }
+          }
+        }
+        setEmails((prev) =>
+          prev.map((em) => (selectedEmailIds.includes(em.id) ? { ...em, folder: 'trash' } : em))
+        );
+        setSelectedEmailIds([]);
+        setNotifications((prev) => [
+          {
+            id: `batch-del-${Date.now()}`,
+            title: 'Emails Moved to Trash',
+            message: `${selectedEmailIds.length} messages moved to trash.`,
+            type: 'system',
+            timestamp: 'Just now',
+            read: false,
+          },
+          ...prev,
+        ]);
+      },
+    });
   };
 
   const handleBatchMarkRead = (read: boolean) => {
@@ -430,8 +754,8 @@ export default function App() {
     setSelectedEmailIds([]);
   };
 
-  // --- Send Email Handler (from Compose modal or reply) ---
-  const handleSendEmail = (emailData: {
+  // --- Send Email Execution ---
+  const executeSendEmail = async (emailData: {
     accountId: string;
     to: string;
     cc?: string;
@@ -444,11 +768,35 @@ export default function App() {
     attachments?: { name: string; size: string; type: string }[];
   }) => {
     const fromAccount = accounts.find((a) => a.id === emailData.accountId) || accounts[0];
-
     const isScheduled = Boolean(emailData.scheduledFor);
+
+    let sentMessageId: string | undefined;
+    let sentThreadId: string | undefined;
+
+    if (
+      isOnline &&
+      !isScheduled &&
+      (isGmailConnected || fromAccount.provider === 'Google Workspace')
+    ) {
+      try {
+        const result = await sendGmailEmail({
+          fromEmail: fromAccount.email,
+          fromName: fromAccount.name,
+          to: [emailData.to],
+          cc: emailData.cc ? [emailData.cc] : undefined,
+          subject: emailData.subject,
+          htmlBody: emailData.body,
+        });
+        sentMessageId = result.id;
+        sentThreadId = result.threadId;
+      } catch (err: any) {
+        console.warn('Gmail API direct send failed, falling back to local dispatch:', err);
+      }
+    }
+
     const newEmail: Email = {
-      id: `mail-${Date.now()}`,
-      threadId: `thread-${Date.now()}`,
+      id: sentMessageId || `mail-${Date.now()}`,
+      threadId: sentThreadId || `thread-${Date.now()}`,
       accountId: emailData.accountId,
       from: {
         name: fromAccount.name,
@@ -490,11 +838,20 @@ export default function App() {
       ]);
     } else {
       setEmails((prev) => [newEmail, ...prev]);
+      if (firebaseUserId) {
+        syncEmailToFirestore(firebaseUserId, newEmail).catch(console.error);
+      }
       setNotifications((prev) => [
         {
           id: `sent-${Date.now()}`,
-          title: isScheduled ? 'Email Scheduled' : 'Email Dispatched',
-          message: isScheduled
+          title: sentMessageId
+            ? 'Delivered via Gmail API'
+            : isScheduled
+            ? 'Email Scheduled'
+            : 'Email Dispatched',
+          message: sentMessageId
+            ? `Dispatched via live Gmail API to ${emailData.to}`
+            : isScheduled
             ? `Message to ${emailData.to} scheduled for ${new Date(
                 emailData.scheduledFor!
               ).toLocaleString()}`
@@ -509,6 +866,46 @@ export default function App() {
 
     // Check automated rules: if any rule matches
     checkAndTriggerAutoRules(newEmail);
+  };
+
+  // --- Send Email Handler (from Compose modal or reply) with user confirmation ---
+  const handleSendEmail = (emailData: {
+    accountId: string;
+    to: string;
+    cc?: string;
+    subject: string;
+    body: string;
+    isEncrypted: boolean;
+    passphrase?: string;
+    scheduledFor?: string;
+    tags?: string[];
+    attachments?: { name: string; size: string; type: string }[];
+  }) => {
+    const fromAccount = accounts.find((a) => a.id === emailData.accountId) || accounts[0];
+    const isGmail = isGmailConnected || fromAccount.provider === 'Google Workspace';
+
+    if (isGmail && isOnline && !emailData.scheduledFor) {
+      // Mandatory confirmation before dispatching live email via Gmail
+      setConfirmModal({
+        isOpen: true,
+        type: 'send',
+        title: 'Send Email via Gmail API',
+        description:
+          'You are about to dispatch this message directly via your connected Gmail / Google Workspace account.',
+        detailItems: [
+          `From: ${fromAccount.name} <${fromAccount.email}>`,
+          `To: ${emailData.to}`,
+          `Subject: ${emailData.subject}`,
+        ],
+        isDestructive: false,
+        onConfirm: () => {
+          setConfirmModal(null);
+          executeSendEmail(emailData);
+        },
+      });
+    } else {
+      executeSendEmail(emailData);
+    }
   };
 
   const checkAndTriggerAutoRules = (sentEmail: Email) => {
@@ -541,6 +938,9 @@ export default function App() {
     );
 
     const targetLead = crmLeads.find((l) => l.id === leadId);
+    if (firebaseUserId && targetLead) {
+      syncLeadToFirestore(firebaseUserId, { ...targetLead, stage: newStage }).catch(console.error);
+    }
     setNotifications((prev) => [
       {
         id: `lead-stage-${Date.now()}`,
@@ -561,6 +961,9 @@ export default function App() {
       linkedEmailIds: [],
     };
     setCrmLeads((prev) => [newLead, ...prev]);
+    if (firebaseUserId) {
+      syncLeadToFirestore(firebaseUserId, newLead).catch(console.error);
+    }
 
     setNotifications((prev) => [
       {
@@ -596,6 +999,9 @@ export default function App() {
     };
 
     setCrmLeads((prev) => [newLead, ...prev]);
+    if (firebaseUserId) {
+      syncLeadToFirestore(firebaseUserId, newLead).catch(console.error);
+    }
 
     // Link lead to email
     setEmails((prev) =>
@@ -912,6 +1318,13 @@ export default function App() {
         onOpenMfa={() => setIsMfaModalOpen(true)}
         onToggleMobileSidebar={() => setIsMobileSidebarOpen(true)}
         isMfaActive={isMfaActive}
+        isGmailConnected={isGmailConnected}
+        gmailUserEmail={gmailUserEmail}
+        onConnectGmail={handleConnectGmail}
+        onDisconnectGmail={handleDisconnectGmail}
+        onSyncGmail={() => triggerGmailSync()}
+        isGmailSyncing={isGmailSyncing}
+        isFirestoreActive={true}
       />
 
       {/* Main Workspace Body */}
@@ -948,6 +1361,11 @@ export default function App() {
           isMobileOpen={isMobileSidebarOpen}
           onCloseMobile={() => setIsMobileSidebarOpen(false)}
           businessName={businesses.find((b) => b.id === activeBusinessId)?.name || 'Partssource-za'}
+          isGmailConnected={isGmailConnected}
+          gmailUserEmail={gmailUserEmail}
+          onConnectGmail={handleConnectGmail}
+          onSyncGmail={() => triggerGmailSync()}
+          isGmailSyncing={isGmailSyncing}
         />
 
         {/* Dynamic Center Stage View */}
@@ -986,6 +1404,10 @@ export default function App() {
                   onMarkReadSelected={handleBatchMarkRead}
                   isOnline={isOnline}
                   selectedAccountId={selectedAccountId}
+                  isGmailConnected={isGmailConnected}
+                  onConnectGmail={handleConnectGmail}
+                  onSyncGmail={() => triggerGmailSync()}
+                  isGmailSyncing={isGmailSyncing}
                 />
               </div>
 
@@ -1170,7 +1592,50 @@ export default function App() {
           };
           setAccounts((prev) => [...prev, newAcc]);
         }}
+        onGmailConnected={(gmailEmail, displayName, photoUrl) => {
+          setIsGmailConnected(true);
+          setGmailUserEmail(gmailEmail);
+          setAccounts((prev) => {
+            const found = prev.find((a) => a.email.toLowerCase() === gmailEmail.toLowerCase());
+            if (found) {
+              return prev.map((a) =>
+                a.id === found.id
+                  ? { ...a, name: displayName || a.name, avatar: photoUrl || a.avatar }
+                  : a
+              );
+            }
+            return [
+              {
+                id: `acc_gmail_${Date.now()}`,
+                businessId: activeBusinessId,
+                name: displayName || 'Jan Coetzee',
+                email: gmailEmail,
+                avatar: photoUrl,
+                color: '#EA4335',
+                role: 'owner',
+                provider: 'Google Workspace',
+                unreadCount: 0,
+              },
+              ...prev,
+            ];
+          });
+          triggerGmailSync(gmailEmail);
+        }}
       />
+
+      {/* Workspace API Explicit Confirmation Modal */}
+      {confirmModal && (
+        <GmailConfirmModal
+          isOpen={confirmModal.isOpen}
+          type={confirmModal.type}
+          title={confirmModal.title}
+          description={confirmModal.description}
+          detailItems={confirmModal.detailItems}
+          isDestructive={confirmModal.isDestructive}
+          onConfirm={confirmModal.onConfirm}
+          onCancel={() => setConfirmModal(null)}
+        />
+      )}
 
       {/* Multi-Factor Authentication (MFA) Modal */}
       <SecurityMfaModal

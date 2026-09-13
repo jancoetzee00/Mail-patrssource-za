@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Default-deny catch-all safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerified() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Root user document & profile
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isValidId(userId);
+      allow delete: if false;
+
+      // 1. Emails subcollection
+      match /emails/{emailId} {
+        allow get, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(emailId);
+        allow delete: if isOwner(userId) && isValidId(emailId);
+      }
+
+      // 2. CRM Leads subcollection
+      match /crm_leads/{leadId} {
+        allow get, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(leadId);
+        allow delete: if isOwner(userId) && isValidId(leadId);
+      }
+
+      // 3. Email Templates subcollection
+      match /templates/{templateId} {
+        allow get, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(templateId);
+        allow delete: if isOwner(userId) && isValidId(templateId);
+      }
+
+      // 4. Corporate Signatures subcollection
+      match /signatures/{signatureId} {
+        allow get, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(signatureId);
+        allow delete: if isOwner(userId) && isValidId(signatureId);
+      }
+
+      // 5. Automation Rules subcollection
+      match /auto_rules/{ruleId} {
+        allow get, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(ruleId);
+        allow delete: if isOwner(userId) && isValidId(ruleId);
+      }
+
+      // 6. Business Entities subcollection
+      match /businesses/{bizId} {
+        allow get, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(bizId);
+        allow delete: if isOwner(userId) && isValidId(bizId);
+      }
+
+      // 7. Connected Accounts subcollection
+      match /accounts/{accountId} {
+        allow get, list: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(accountId);
+        allow delete: if isOwner(userId) && isValidId(accountId);
+      }
+    }
+  }
+}

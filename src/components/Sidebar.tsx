@@ -21,6 +21,8 @@ import {
   CheckCircle2,
   FileCode2,
   Building2,
+  Mail,
+  RefreshCw,
 } from 'lucide-react';
 import { Account, EmailFolder } from '../types';
 
@@ -51,6 +53,11 @@ interface SidebarProps {
   isMobileOpen: boolean;
   onCloseMobile: () => void;
   businessName?: string;
+  isGmailConnected?: boolean;
+  gmailUserEmail?: string | null;
+  onConnectGmail?: () => void;
+  onSyncGmail?: () => void;
+  isGmailSyncing?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -71,6 +78,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isMobileOpen,
   onCloseMobile,
   businessName = 'Partssource-za',
+  isGmailConnected = false,
+  gmailUserEmail = null,
+  onConnectGmail,
+  onSyncGmail,
+  isGmailSyncing = false,
 }) => {
   const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
 
@@ -265,6 +277,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="my-1 border-t border-slate-100 dark:border-slate-700/60" />
 
                 <button
+                  id="connect-gmail-sidebar-dropdown-btn"
+                  type="button"
+                  onClick={() => {
+                    setIsAccountDropdownOpen(false);
+                    if (onConnectGmail) onConnectGmail();
+                  }}
+                  className="w-full px-3 py-1.5 text-xs text-red-600 dark:text-red-400 flex items-center gap-2 hover:bg-red-50 dark:hover:bg-red-950/30 font-medium"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>{isGmailConnected ? 'Gmail Active (Sync)' : 'Connect Gmail Account'}</span>
+                </button>
+
+                <button
                   id="add-business-account-trigger-btn"
                   type="button"
                   onClick={() => {
@@ -274,11 +299,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className="w-full px-3 py-1.5 text-xs text-blue-600 dark:text-blue-400 flex items-center gap-2 hover:bg-blue-50 dark:hover:bg-blue-900/30"
                 >
                   <PlusCircle className="w-3.5 h-3.5" />
-                  <span>Connect Business Account</span>
+                  <span>Connect Other Account</span>
                 </button>
               </div>
             )}
           </div>
+
+          {/* Gmail live status chip if connected */}
+          {isGmailConnected && (
+            <div className="mt-2 p-2 rounded-lg bg-red-50/80 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 flex items-center justify-between text-[11px]">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                  {gmailUserEmail || 'Gmail Active'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onSyncGmail}
+                disabled={isGmailSyncing}
+                title="Sync Gmail inbox"
+                className="p-1 rounded text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+              >
+                <RefreshCw className={`w-3 h-3 ${isGmailSyncing ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Primary Compose Button */}

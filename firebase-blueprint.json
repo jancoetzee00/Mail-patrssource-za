@@ -1,0 +1,168 @@
+{
+  "entities": {
+    "userProfile": {
+      "title": "UserProfile",
+      "description": "User profile document",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "photoURL": { "type": "string", "maxLength": 512 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "email"]
+    },
+    "email": {
+      "title": "Email",
+      "description": "Synchronized or composed email message",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "threadId": { "type": "string", "maxLength": 128 },
+        "accountId": { "type": "string", "maxLength": 128 },
+        "subject": { "type": "string", "maxLength": 500 },
+        "body": { "type": "string", "maxLength": 500000 },
+        "previewText": { "type": "string", "maxLength": 500 },
+        "timestamp": { "type": "string", "maxLength": 64 },
+        "folder": { "type": "string", "maxLength": 32 },
+        "isRead": { "type": "boolean" },
+        "isStarred": { "type": "boolean" },
+        "syncStatus": { "type": "string", "maxLength": 32 }
+      },
+      "required": ["id", "threadId", "accountId", "subject", "folder", "isRead", "isStarred"]
+    },
+    "crmLead": {
+      "title": "CRMLead",
+      "description": "Enterprise customer or prospect in the CRM pipeline",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "contactName": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 128 },
+        "company": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 128 },
+        "phone": { "type": "string", "maxLength": 64 },
+        "stage": { "type": "string", "maxLength": 64 },
+        "dealValue": { "type": "number" },
+        "probability": { "type": "number" },
+        "score": { "type": "number" },
+        "assignedTo": { "type": "string", "maxLength": 128 },
+        "source": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "contactName", "email", "company", "stage"]
+    },
+    "emailTemplate": {
+      "title": "EmailTemplate",
+      "description": "Reusable business email response template",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "maxLength": 64 },
+        "subject": { "type": "string", "maxLength": 500 },
+        "body": { "type": "string", "maxLength": 50000 },
+        "usageCount": { "type": "number" }
+      },
+      "required": ["id", "title", "category", "subject", "body"]
+    },
+    "emailSignature": {
+      "title": "EmailSignature",
+      "description": "Corporate branded email signature profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "fullName": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 128 },
+        "company": { "type": "string", "maxLength": 128 },
+        "phone": { "type": "string", "maxLength": 64 },
+        "website": { "type": "string", "maxLength": 256 },
+        "brandColor": { "type": "string", "maxLength": 32 }
+      },
+      "required": ["id", "name", "fullName", "company"]
+    },
+    "autoResponseRule": {
+      "title": "AutoResponseRule",
+      "description": "Smart automated responder rule",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 128 },
+        "triggerType": { "type": "string", "maxLength": 64 },
+        "responseSubject": { "type": "string", "maxLength": 500 },
+        "responseTemplate": { "type": "string", "maxLength": 50000 },
+        "isEnabled": { "type": "boolean" },
+        "executionCount": { "type": "number" }
+      },
+      "required": ["id", "title", "triggerType", "responseSubject", "responseTemplate", "isEnabled"]
+    },
+    "businessEntity": {
+      "title": "BusinessEntity",
+      "description": "Commercial multi-entity organization profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "legalName": { "type": "string", "maxLength": 128 },
+        "domain": { "type": "string", "maxLength": 128 },
+        "supportEmail": { "type": "string", "maxLength": 128 },
+        "industry": { "type": "string", "maxLength": 128 },
+        "tier": { "type": "string", "maxLength": 64 },
+        "color": { "type": "string", "maxLength": 32 },
+        "currency": { "type": "string", "maxLength": 16 }
+      },
+      "required": ["id", "name", "domain", "supportEmail"]
+    },
+    "account": {
+      "title": "Account",
+      "description": "Connected mailbox or Google Workspace account profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 128 },
+        "avatar": { "type": "string", "maxLength": 512 },
+        "color": { "type": "string", "maxLength": 32 },
+        "role": { "type": "string", "maxLength": 32 },
+        "provider": { "type": "string", "maxLength": 64 },
+        "unreadCount": { "type": "number" }
+      },
+      "required": ["id", "name", "email", "provider"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "userProfile",
+      "description": "Private root profile document for the authenticated user"
+    },
+    "users/{userId}/emails/{emailId}": {
+      "schema": "email",
+      "description": "Private mailbox email documents belonging to the authenticated user"
+    },
+    "users/{userId}/crm_leads/{leadId}": {
+      "schema": "crmLead",
+      "description": "Private CRM pipeline records belonging to the authenticated user"
+    },
+    "users/{userId}/templates/{templateId}": {
+      "schema": "emailTemplate",
+      "description": "Private email response templates belonging to the authenticated user"
+    },
+    "users/{userId}/signatures/{signatureId}": {
+      "schema": "emailSignature",
+      "description": "Private corporate email signatures belonging to the authenticated user"
+    },
+    "users/{userId}/auto_rules/{ruleId}": {
+      "schema": "autoResponseRule",
+      "description": "Private auto-responder rules belonging to the authenticated user"
+    },
+    "users/{userId}/businesses/{bizId}": {
+      "schema": "businessEntity",
+      "description": "Private business entity records belonging to the authenticated user"
+    },
+    "users/{userId}/accounts/{accountId}": {
+      "schema": "account",
+      "description": "Private connected email accounts belonging to the authenticated user"
+    }
+  }
+}

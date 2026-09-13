@@ -1,6 +1,6 @@
 {
   "name": "Partssource-za Mail & CRM Suite",
-  "description": "Enterprise business email, CRM pipeline, and multi-entity operations platform configured for Partssource-za.",
+  "description": "Enterprise business email, CRM pipeline, and multi-entity operations platform with integrated Gmail for Partssource-za.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
